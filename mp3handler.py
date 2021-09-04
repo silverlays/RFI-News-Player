@@ -1,56 +1,93 @@
 import os
+from ctypes import c_buffer, windll
 import urllib.request as request
-from mutagen.mp3 import MP3
-from audioplayer import AudioPlayer
+
 
 class MP3Handler():
-  def __init__(self, mp3_url, mp3_filename="rfitemp.mp3") -> None:
+  STATUS_STOPPED = "stopped"
+  STATUS_PLAYING = "playing"
+  STATUS_PAUSED = "paused"
+
+  def __init__(self, mp3_url: str, mp3_filename="rfitemp.mp3") -> None:
     self.mp3_url = mp3_url
     self.mp3_filename = mp3_filename
-    self.mp3_player = None # Will be instanced after downloading
-  
+    self._alias = "A{}".format(id(self))
+
   def DownloadMP3(self) -> None:
     self.mp3_file = request.urlretrieve(url=self.mp3_url, filename=self.mp3_filename)[0]
-    self.mp3_length = MP3(self.mp3_file).info.length
-  
+
   def LoadMP3(self) -> None:
-    self.mp3_player = AudioPlayer(self.mp3_file)
-    self.playing = False
-    self.stopped = True
-  
+    self._MciSendString(r'open "{}" type mpegvideo alias {}'.format(self.mp3_filename, self._alias))
+    self._MciSendString(f"set {self._alias} time format milliseconds")
+
   def Play(self) -> None:
-    if self.mp3_player:
-      self.mp3_player.play()
-      self.playing = True
-      self.stopped = False
-  
-  def PauseResume(self) -> None:
-    if self.mp3_player:
-      if not self.stopped and self.playing:
-        self.mp3_player.pause()
-        self.playing = False
-      elif not self.stopped and not self.playing:
-        self.mp3_player.resume()
-        self.playing = True
-  
+    self._MciSendString(f"play {self._alias}")
+
+  def Pause(self) -> None:
+    self._MciSendString(f"pause {self._alias}")
+
+  def Resume(self) -> None:
+    self._MciSendString(f"resume {self._alias}")
+
   def Stop(self) -> None:
-    if self.mp3_player:
-      self.mp3_player.stop()
-      self.playing = False
-      self.stopped = True
-  
-  @property
-  def volume(self):
-    if self.mp3_player: return self.mp3_player.volume
-    else: return 100
-  
-  @volume.setter
-  def volume(self, new_value):
-    if self.mp3_player:
-      if new_value >= 0 and new_value <= 100:
-        self.mp3_player.volume = new_value
-      else: raise ValueError("The value must be between 0 and 100.")
+    self._MciSendString(f"stop {self._alias}")
+    self._MciSendString(f"seek {self._alias} to start")
 
   def Detroy(self) -> None:
-    if self.mp3_player: self.mp3_player.close()
+    self._MciSendString(f"close {self._alias}")
     if os.path.exists(self.mp3_filename): os.remove(self.mp3_filename)
+  
+  def _MciSendString(self, command, buffer=False):
+    if buffer:
+      buffer = c_buffer(255)
+      ret = windll.winmm.mciSendStringW(command, buffer, 254, 0)
+      if ret != 0: raise MP3HandlerError(ret)
+      return buffer.raw
+    if not buffer:
+      ret = windll.winmm.mciSendStringW(command, 0, 0, 0)
+      if ret != 0: raise MP3HandlerError(ret)
+
+
+  @property
+  def position(self):
+    try:
+      position = self._MciSendString(f"status {self._alias} position", True)
+      position = int(position.replace(b'\x00', b'')) / 1000
+    except: position = 0.0
+    return position  
+
+  @property
+  def length(self):
+    try:
+      length = self._MciSendString(f"status {self._alias} length", True)
+      length = int(length.replace(b'\x00', b'')) / 1000
+    except: length = 0.0
+    return length
+
+  @property
+  def status(self):
+    try:
+      status = self._MciSendString(f"status {self._alias} mode", True)
+      status = str(status.replace(b'\x00', b'')).removeprefix("b'").removesuffix("'")
+    except: status = "stopped"
+    return status
+
+  @property
+  def volume(self):
+    try:
+      volume = self._MciSendString(f"status {self._alias} volume", True)
+      volume = int(volume.replace(b'\x00', b'')) / 10
+    except: volume = 100.0
+    return int(volume)
+
+  @volume.setter
+  def volume(self, new_value: float):
+    self._MciSendString(f"setaudio {self._alias} volume to {int(new_value)*10}")
+
+
+class MP3HandlerError(Exception):
+  def __init__(self, error_code: int) -> None:
+    error_str = c_buffer(255)
+    windll.winmm.mciGetErrorStringA(error_code, error_str, 254)
+    error_str = str(error_str.value, encoding="windows_1252")
+    super().__init__(error_str)

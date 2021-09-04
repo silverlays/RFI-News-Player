@@ -1,8 +1,8 @@
-# Changes compared to v1.1:
+# Changes compared to v1.2:
 #
-# - Fully optimized and reorganized code (last time?)
-# - Added themes menu for easy switching
-# - New save settings feature in the registry (only for themes actually)
+# - Finally replacing AudioPlayer by custom class...
+# - ... This include better mp3 data handling (volume, position, length, ...) more accuratly...
+# - ... It also implies that a lot of code that has become useless has disappeared.
 
 
 import time
@@ -21,7 +21,7 @@ default_theme = "DarkGrey12"
 ### USER SETTINGS
 
 
-version = "1.2"
+version = "1.3"
 program_title = f"RFI News Player v{version}"
 
 window_data = WindowData()
@@ -32,6 +32,7 @@ window_data.playpause = Images.base64_play
 switch_theme = False
 
 settings = Settings()
+
 
 class GUI():
   def __init__(self):
@@ -50,8 +51,8 @@ class GUI():
     ], vertical_alignment="center", expand_x=True, expand_y=True, pad=(0, 0))
 
     self.col3 = sg.Column([
-      [sg.Text(window_data.mp3time_str, key="mp3time", font=("", 10))],
-      [sg.Text(window_data.mp3volume_str, key="mp3volume", font=("", 10))]
+      [sg.Text("00:00 / 00:00", key="mp3time", font=("", 10))],
+      [sg.Text("Volume: n/a", key="mp3volume", font=("", 10))]
     ], vertical_alignment="center", pad=(0, 0))
 
     self.menubar = [
@@ -76,34 +77,29 @@ class GUI():
 
     while True:
       event, values = self.window.read(window_data.UPDATE_TICK)
-      # print(event, values)
       if event == "__TIMEOUT__":
-        if window_data.mp3time_values['elapsed'] > window_data.mp3time_values['length']: self.window['stop'].click()
-        elif hasattr(window_data.mp3handler, "playing") and window_data.mp3handler.playing:
-          window_data.mp3time_values['elapsed'] += (window_data.UPDATE_TICK / 1000)
-          self._RefreshWindow(timer=True, progressbar=True)
+        if isinstance(window_data.mp3handler, MP3Handler):
+          if window_data.mp3handler.position == window_data.mp3handler.length: self.window['stop'].click()
+          else: self._RefreshWindow(timer=True, progressbar=True)
       if event == sg.WIN_CLOSED:
-        if hasattr(window_data.mp3handler, "playing"): window_data.mp3handler.Detroy()
+        if isinstance(window_data.mp3handler, MP3Handler): window_data.mp3handler.Detroy()
         break
-      if event == "playpause" and hasattr(window_data.mp3handler, "playing"):
-        if window_data.mp3handler.playing: # DO PAUSE
-          window_data.mp3handler.PauseResume()
-          window_data.playpause = Images.base64_play
+      if event == "playpause" and isinstance(window_data.mp3handler, MP3Handler):
+        if window_data.mp3handler.status == window_data.mp3handler.STATUS_PLAYING:
+          window_data.mp3handler.Pause()
           window_data.statusbar_str = "Paused..."
-          self._RefreshWindow(playpause=True, statusbar=True)
-        elif not window_data.mp3handler.playing: # DO PLAY
-          window_data.mp3handler.PauseResume() if not window_data.mp3handler.stopped else window_data.mp3handler.Play()
-          window_data.playpause = Images.base64_pause
+        elif window_data.mp3handler.status == window_data.mp3handler.STATUS_PAUSED:
+          window_data.mp3handler.Resume()
           window_data.statusbar_str = "Playing..."
-          self._RefreshWindow(playpause=True, statusbar=True)
-      if event == "stop" and hasattr(window_data.mp3handler, "playing"): # DO STOP
+        elif window_data.mp3handler.status == window_data.mp3handler.STATUS_STOPPED:
+          window_data.mp3handler.Play()
+          window_data.statusbar_str = "Playing..."
+        self._RefreshWindow(playpause=True, statusbar=True)
+      if event == "stop" and isinstance(window_data.mp3handler, MP3Handler):
         window_data.mp3handler.Stop()
-        window_data.mp3time_values['elapsed'] = 0.0
-        window_data.playpause = Images.base64_play
         window_data.statusbar_str = "Stopped..."
         self._RefreshWindow(timer=True, progressbar=True, playpause=True, statusbar=True)
-      if event == "volumeslider" and hasattr(window_data.mp3handler, "volume"): # CHANGE VOLUME
-        window_data.mp3volume_str = "Volume: {:.0f}".format(values['volumeslider'])
+      if event == "volumeslider" and isinstance(window_data.mp3handler, MP3Handler):
         window_data.mp3handler.volume = values['volumeslider']
         self._RefreshWindow(volume=True)
       if values['menubar']:
@@ -113,50 +109,34 @@ class GUI():
         if values['menubar'].find("_THEME_") != -1:
           self._SwitchTheme(menubar_item)
           return
-  
-  def _RefreshWindow(self, all=False, metadata=False, timer=False, volume=False, progressbar=False, playpause=False, statusbar=False):
-    """Refresh one (or all) elements on the window
 
-    Args:
-        all (bool, optional): Force a full refresh. If True, the others parameters are useless. Defaults to False.
-        metadata (bool, optional): Include Title and Datetime. Defaults to False.
-        timer (bool, optional): Include MP3 timer. Defaults to False.
-        volume (bool, optional): Include Volume. Defaults to False.
-        progressbar (bool, optional): Include Progress bar. Defaults to False.
-        playpause (bool, optional): Include Play/Pause button. Defaults to False.
-        statusbar (bool, optional): Include Status bar. Defaults to False.
-    """
+
+  def _RefreshWindow(self, all=False, metadata=False, timer=False, volume=False, volumeslider=False, progressbar=False, playpause=False, statusbar=False):
     if metadata or all:
       self.window['title'].update(window_data.title_str)
       self.window['datetime'].update(window_data.datetime_str)
-      self.window.refresh()
-    if timer or all:
-      window_data.mp3time_str = f"{time.strftime('%M:%S', time.gmtime(window_data.mp3time_values['elapsed']))} / {time.strftime('%M:%S', time.gmtime(window_data.mp3time_values['length']))}"
-      self.window['mp3time'].update(window_data.mp3time_str)
-    if volume or all: self.window['mp3volume'].update(window_data.mp3volume_str)
-    if progressbar or all: self.window['progressbar'].update_bar(window_data.mp3time_values['elapsed'], window_data.mp3time_values['length'])
-    if playpause or all: self.window['playpause'].update(image_data=window_data.playpause)
-    if statusbar or all:
-      self.window['statusbar'].update(window_data.statusbar_str)
-      self.window.refresh()
-  
+    if isinstance(window_data.mp3handler, MP3Handler):
+      if timer or all : self.window['mp3time'].update(f"{time.strftime('%M:%S', time.gmtime(window_data.mp3handler.position))} / {time.strftime('%M:%S', time.gmtime(window_data.mp3handler.length))}")
+      if volume or all: self.window['mp3volume'].update(f"Volume: {window_data.mp3handler.volume}")
+      if volumeslider or all: self.window['volumeslider'].update(window_data.mp3handler.volume)
+      if progressbar or all: self.window['progressbar'].update_bar(window_data.mp3handler.position, window_data.mp3handler.length)
+      if playpause or all:
+        if window_data.mp3handler.status == window_data.mp3handler.STATUS_PLAYING: window_data.playpause = Images.base64_pause
+        if window_data.mp3handler.status == window_data.mp3handler.STATUS_PAUSED: window_data.playpause = Images.base64_play
+        if window_data.mp3handler.status == window_data.mp3handler.STATUS_STOPPED: window_data.playpause = Images.base64_play
+        self.window['playpause'].update(image_data=window_data.playpause)
+    if statusbar or all: self.window['statusbar'].update(window_data.statusbar_str)
+    self.window.refresh()
+
+
   def _LoadNewMP3(self, entry_number=0):
     global window_data, switch_theme
-    """Load a new MP3 into player.
-
-    Args:
-        entry_number (int, optional): Number obtained from Scrapper.EntryNumberByTitle() method. Defaults to 0 (most recent).
-    """
     if not switch_theme:
       # Reset all values
+      window_data.statusbar_str = "Loading new MP3..."
       window_data.title_str = window_data.DEFAULT_TITLE_STR
       window_data.datetime_str = window_data.DEFAULT_DATETIME_STR
-      window_data.mp3time_str = window_data.DEFAULT_MP3TIME_STR
-      window_data.mp3volume_str = window_data.DEFAULT_MP3VOLUME_STR
-      window_data.playpause = Images.base64_play
-      window_data.mp3time_values['elapsed'] = 0.0
-      window_data.mp3time_values['length'] = 0.0
-      window_data.statusbar_str = "Loading new MP3..."
+      if isinstance(window_data.mp3handler, MP3Handler): window_data.mp3handler.Detroy()
       self._RefreshWindow(all=True)
 
       # Updating values (1/2)
@@ -169,42 +149,39 @@ class GUI():
       window_data.statusbar_str = "Downloading..."
       window_data.mp3handler = MP3Handler(window_data.scrapper.ExtractUrl(entry_number))
       window_data.mp3handler.DownloadMP3()
-      window_data.mp3time_values['length'] = window_data.mp3handler.mp3_length
       self._RefreshWindow(statusbar=True, timer=True)
 
       # Loading MP3
       window_data.statusbar_str = "Loading..."
       window_data.mp3handler.LoadMP3()
-      window_data.mp3volume_str = "Volume: {:.0f}".format(window_data.mp3handler.volume)
       self._RefreshWindow(statusbar=True, volume=True)
 
       # Playing MP3
-      window_data.statusbar_str = "Playing..."
-      window_data.playpause = Images.base64_pause
-      window_data.mp3handler.Play()
-      self._RefreshWindow(statusbar=True, playpause=True)
+      self.window['playpause'].click()
     else:
       switch_theme = False
       self._RefreshWindow(all=True)
+
 
   def _SwitchTheme(self, new_theme):
     global window_data, switch_theme
     window_data.theme = new_theme
     switch_theme = True
     self.window.close()
-  
+
+
   def _GenerateThemesMenu(self):
     themes_menu = []
     themes_count = len(sg.theme_list())
-    i = 0
-    while i < themes_count:
+    index = 0
+    while index < themes_count:
       menu_content = []
       for _ in range(0, 30):
-        if i < themes_count:
-          menu_content.append(sg.theme_list()[i-1] + "::_THEME_")
-          i+=1
+        if index < themes_count:
+          menu_content.append(sg.theme_list()[index-1] + "::_THEME_")
+          index+=1
         else: break
-      menu_title = f"{i-29}-{i}" if (i % 30) == 0 else f"{i-(i % 30)}-{i}"
+      menu_title = f"{index-29}-{index}" if (index % 30) == 0 else f"{index-(index % 30)}-{index}"
       themes_menu.append(menu_title)
       themes_menu.append(menu_content)
     return themes_menu
