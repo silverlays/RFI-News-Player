@@ -4,10 +4,9 @@
 
 
 import os, json
-from windowdata import WindowData
 
 
-settings_file = "settings.json"
+__settings_file__ = "settings.json"
 
 
 class Settings():
@@ -18,12 +17,12 @@ class Settings():
       "theme": "DarkGrey12",
     }
 
-    if os.path.exists(settings_file):
-      with open(settings_file, "r") as file: self._json_settings = json.load(fp=file)
+    if os.path.exists(__settings_file__):
+      with open(__settings_file__, "r") as file: self._json_settings = json.load(fp=file)
     else: self.SaveSettings()
 
   def SaveSettings(self):
-    with open(settings_file, "w") as file: json.dump(obj=self._json_settings, fp=file, indent=2)
+    with open(__settings_file__, "w") as file: json.dump(obj=self._json_settings, fp=file, indent=2)
   
   def Get(self, key: str):
     for ckey in self._json_settings.keys():

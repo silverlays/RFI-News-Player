@@ -13,6 +13,10 @@ class MP3Handler():
     self.mp3_filename = mp3_filename
     self._alias = "A{}".format(id(self))
 
+  def __del__(self):
+    self._MciSendString(f"close {self._alias}")
+    if os.path.exists(self.mp3_filename): os.remove(self.mp3_filename)
+
   def DownloadMP3(self) -> None:
     self.mp3_file = request.urlretrieve(url=self.mp3_url, filename=self.mp3_filename)[0]
 
@@ -33,10 +37,6 @@ class MP3Handler():
     self._MciSendString(f"stop {self._alias}")
     self._MciSendString(f"seek {self._alias} to start")
 
-  def Detroy(self) -> None:
-    self._MciSendString(f"close {self._alias}")
-    if os.path.exists(self.mp3_filename): os.remove(self.mp3_filename)
-  
   def _MciSendString(self, command, buffer=False):
     if buffer:
       buffer = c_buffer(255)
