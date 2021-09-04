@@ -47,6 +47,13 @@ class MP3Handler():
       ret = windll.winmm.mciSendStringW(command, 0, 0, 0)
       if ret != 0: raise MP3HandlerError(ret)
 
+  @property
+  def length(self):
+    try:
+      length = self._MciSendString(f"status {self._alias} length", True)
+      length = int(length.replace(b'\x00', b'')) / 1000
+    except: length = 0.0
+    return length
 
   @property
   def position(self):
@@ -56,13 +63,11 @@ class MP3Handler():
     except: position = 0.0
     return position  
 
-  @property
-  def length(self):
-    try:
-      length = self._MciSendString(f"status {self._alias} length", True)
-      length = int(length.replace(b'\x00', b'')) / 1000
-    except: length = 0.0
-    return length
+  @position.setter
+  def position(self, new_value: float):
+    if new_value < 0: new_value = 0
+    if new_value > self.length: new_value = self.length
+    self._MciSendString(f"play {self._alias} from {int(new_value * 1000)}")
 
   @property
   def status(self):

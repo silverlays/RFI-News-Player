@@ -9,7 +9,6 @@ class Scrapper():
       html_data = bs4.BeautifulSoup(response.read(), "html.parser")
     list = html_data.select("div.o-layout-list script")
     self._entries = [json.loads(item.contents[0]) for item in list]
-    pass
   
   def ExtractDataByItem(self, item: dict) -> tuple[str, str]:
     """Extract title and datetime from an <self.Entries> item.

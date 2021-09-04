@@ -3,23 +3,31 @@
 # - (string/REG_SZ) Theme
 
 
-import winreg
+import os, json
 from windowdata import WindowData
 
 
+settings_file = "settings.json"
+
+
 class Settings():
-  DEFAULT_PATH = "Software\\RFI News Player"
+  def __init__(self) -> None:
+    self._json_settings = {
+      "default_url": "https://www.rfi.fr/fr/journaux-monde/",
+      "default_location": (1612, 0),
+      "theme": "DarkGrey12",
+    }
 
-  def __init__(self):
-    self._registry = winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.DEFAULT_PATH)
-    
-  def LoadSettings(self, window_data: WindowData):
-    _, values, _ = winreg.QueryInfoKey(self._registry)
-    for value in range(values):
-      value_name, value_data, _ = winreg.EnumValue(self._registry, value)
-      
-      # HANDELED VALUES
-      if value_name == "Theme": window_data.theme = value_data
+    if os.path.exists(settings_file):
+      with open(settings_file, "r") as file: self._json_settings = json.load(fp=file)
+    else: self.SaveSettings()
 
-  def SaveSettings(self, window_data: WindowData):
-    winreg.SetValueEx(self._registry, "Theme", 0, winreg.REG_SZ, window_data.theme)
+  def SaveSettings(self):
+    with open(settings_file, "w") as file: json.dump(obj=self._json_settings, fp=file, indent=2)
+  
+  def Get(self, key: str):
+    for ckey in self._json_settings.keys():
+      if ckey == key: return self._json_settings[ckey]
+  
+  def Set(self, key: str, value: object):
+    self._json_settings[key] = value
