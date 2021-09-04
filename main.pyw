@@ -1,133 +1,222 @@
-# First release (don't use it)
+# Changes compared to v1.0:
+#
+# - Add possibility to select any of available MP3.
+# - Cleanup code (separate classes for Scrapper and MP3)
+# - Base64 icons for reliability.
+# - Added documentation
 
 
 import bs4, json, re, time, os
 import urllib.request as request
 import PySimpleGUI as sg
-from datetime import date
 from mutagen.mp3 import MP3
 from audioplayer import AudioPlayer
 
-version = "1.0"
+version = "1.1"
 program_title = f"RFI News Player v{version}"
+
+default_url = "https://www.rfi.fr/fr/journaux-monde/"
+default_location = (1612, 0)
 
 class GUI():
   def __init__(self):
-    sg.theme("DarkGrey12")
-    sg.SetGlobalIcon(Images.base64_app)
-
-    self.location = (1320, 0)
     self.update_tick = 100
     self.elapsed_secs = 0
-    self.scapper = Scrapper()
-    self.window = sg.Window(program_title, location=self.location)
+    self.scrapper = Scrapper(default_url)
+    self.mp3 = MP3Handler()
+    self.window = sg.Window(program_title, location=default_location)
     self.window.Font = "Lucida"
-    self.title, self.datetime = self.scapper.ExtractData()
 
-    col1 = sg.Column([
-      [sg.Button("", key="playpause", border_width=0, image_data=Images.base64_play), sg.Button("", key="stop", border_width=0, image_data=Images.base64_stop)],
+    self.col1 = sg.Column([
+      [sg.Button(key="playpause", border_width=0, image_data=Images.base64_play), sg.Button(key="stop", border_width=0, image_data=Images.base64_stop)],
       [sg.Slider(range=(0, 100), key="volumeslider", default_value=100, enable_events=True, size=(0, 10), orientation="horizontal", disable_number_display=True, expand_x=True, relief=sg.RELIEF_FLAT)]
     ], pad=(0, 0))
 
-    col2 = sg.Column([
-      [sg.ProgressBar(100, key="progressbar", size=(10, 0), border_width=1, relief=sg.RELIEF_RAISED, expand_y=True)]
-    ], vertical_alignment="center", expand_y=True, pad=(0, 0))
+    self.col2 = sg.Column([
+      [sg.ProgressBar(100, key="progressbar", size=(10, 0), border_width=1, relief=sg.RELIEF_RAISED, expand_x=True, expand_y=True)]
+    ], vertical_alignment="center", expand_x=True, expand_y=True, pad=(0, 0))
 
-    col3 = sg.Column([
+    self.col3 = sg.Column([
       [sg.Text("00:00 / n/a", key="mp3time", font=("", 10))],
       [sg.Text("Volume: n/a", key="mp3volume", font=("", 10))]
     ], vertical_alignment="center", pad=(0, 0))
 
-    layout = [
+    self.menubar = [
+      ["&Les journaux Monde", [ ["{} {}".format(*self.scrapper.ExtractDataByItem(item)) for item in self.scrapper.Entries] ]]
+    ]
+
+    self.layout = [
+      [sg.MenubarCustom(self.menubar, key="menubar", bar_font=("", 10), bar_background_color=sg.theme_background_color(), bar_text_color=sg.theme_text_color())],
       [sg.HorizontalSeparator()],
-      [sg.Text(self.title, key="title", font=("", 20, "bold"), justification="center", expand_x=True, pad=(0, 0))],
-      [sg.Text(self.datetime, key="datetime", font=("", 14, "bold"), justification="center", expand_x=True, pad=(0, 0))],
+      [sg.Text("N/A", key="title", font=("", 20, "bold"), justification="center", expand_x=True, pad=(0, 0))],
+      [sg.Text("N/A", key="datetime", font=("", 14, "bold"), justification="center", expand_x=True, pad=(0, 0))],
       [sg.HorizontalSeparator()],
-      [col1, col2, col3],
+      [self.col1, self.col2, self.col3],
       [sg.HorizontalSeparator()],
       [sg.StatusBar("Downloading...", key="status", justification="center", expand_x=True, relief=sg.RELIEF_RAISED)]
     ]
-    self.window.layout(layout)
+
+    self.window.layout(self.layout)
     self.window.read(self.update_tick)
-    self.window["status"].update("Downloading...")
-    self.scapper.DownloadMP3()
-    self.UpdateTimer()
-    self.UpdateProgressBar()
-    self.window.read(self.update_tick)
-    self.window["status"].update("Loading player...")
-    self.scapper.LoadMP3()
-    self.window.read(self.update_tick)
-    self.scapper.Play()
-    self.window["playpause"].update(image_data=Images.base64_pause)
-    self.window["status"].update("Playing...")
+    self._LoadNewMP3()
 
     while True:
       event, values = self.window.read(1000)
+      print(event, values)
       if event == sg.WIN_CLOSED:
-        self.scapper.Detroy()
+        self.mp3.Detroy()
         break
       elif event == "playpause":
-        if self.scapper.playing:
-          self.scapper.PauseResume()
-          self.window["playpause"].update(image_data=Images.base64_play)
-          self.window["status"].update("Paused...")
-        elif not self.scapper.playing:
-          self.scapper.Play() if self.scapper.stopped else self.scapper.PauseResume()
-          self.window["playpause"].update(image_data=Images.base64_pause)
-          self.window["status"].update("Playing...")
+        if self.mp3.playing:
+          self.mp3.PauseResume()
+          self.window['playpause'].update(image_data=Images.base64_play)
+          self.window['status'].update("Paused...")
+        elif not self.mp3.playing:
+          self.mp3.Play() if self.mp3.stopped else self.mp3.PauseResume()
+          self.window['playpause'].update(image_data=Images.base64_pause)
+          self.window['status'].update("Playing...")
       elif event == "stop":
-        self.scapper.Stop()
+        self.mp3.Stop()
         self.elapsed_secs = 0
-        self.window["playpause"].update(image_data=Images.base64_play)
-        self.window["status"].update("Stopped...")
-        self.UpdateTimer()
+        self.window['playpause'].update(image_data=Images.base64_play)
+        self.window['status'].update("Stopped...")
+        self._UpdateTimer()
       elif event == "volumeslider":
-        self.scapper.ChangeVolume(int(values["volumeslider"]))
-        self.UpdateVolume()
+        self.mp3.ChangeVolume(int(values["volumeslider"]))
+        self._UpdateVolume()
       elif event == "__TIMEOUT__":
-        if self.elapsed_secs >= self.scapper.mp3_length: self.window["stop"].click()
-        elif self.scapper.playing: self.elapsed_secs += 1
-        self.UpdateTimer()
-        self.UpdateProgressBar()
-        self.UpdateVolume()
+        if self.elapsed_secs >= self.mp3.mp3_length: self.window["stop"].click()
+        elif self.mp3.playing: self.elapsed_secs += 1
+        self._UpdateTimer()
+        self._UpdateProgressBar()
+        self._UpdateVolume()
+      else:
+        self.window['status'].update("Loading new...")
+        self._LoadNewMP3(self.scrapper.EntryNumberByTitle(event))
   
-  def UpdateTimer(self) -> None:
+  def _LoadNewMP3(self, entry_number=0) -> None:
+    """Load a new MP3 into player.
+
+    Args:
+        entry_number (int, optional): Number obtained from Scrapper.EntryNumberByTitle() method. Defaults to 0 (most recent).
+    """
+    # Reset all values
+    self.elapsed_secs = 0
+    self.window['title'].update("N/A")
+    self.window['datetime'].update("N/A")
+    self.window['mp3time'].update("00:00 / n/a")
+    self.window['mp3volume'].update("Volume: n/a")
+    self.window['progressbar'].update_bar(0, 0)
+
+    # Updating values (1/2) 
+    self.title, self.datetime = self.scrapper.ExtractDataByNumber(entry_number)
+    self.window['title'].update(self.title)
+    self.window['datetime'].update(self.datetime)
+    self.window.read(self.update_tick)
+    self.window.Move(default_location[0] - self.window.size[0], default_location[1])
+
+    # Download and updating values (2/2)
+    self.window['status'].update("Downloading...")
+    self.mp3 = MP3Handler(self.scrapper.ExtractUrl(entry_number))
+    self.mp3.DownloadMP3()
+    self._UpdateTimer()
+    self._UpdateProgressBar()
+    self.window.read(self.update_tick)
+
+    # Playing MP3
+    self.window['status'].update("Loading player...")
+    self.mp3.LoadMP3()
+    self.window.read(self.update_tick)
+    self.mp3.Play()
+    self.window['playpause'].update(image_data=Images.base64_pause)
+    self.window['status'].update("Playing...")
+
+  def _UpdateTimer(self) -> None:
     elapsed = time.strftime("%M:%S", time.gmtime(self.elapsed_secs))
-    total = time.strftime("%M:%S", time.gmtime(self.scapper.mp3_length))
-    self.window["mp3time"].update(f"{elapsed} / {total}")
+    total = time.strftime("%M:%S", time.gmtime(self.mp3.mp3_length))
+    self.window['mp3time'].update(f"{elapsed} / {total}")
   
-  def UpdateProgressBar(self) -> None:
-    self.window["progressbar"].update_bar(self.elapsed_secs, self.scapper.mp3_length)
+  def _UpdateProgressBar(self) -> None:
+    self.window['progressbar'].update_bar(self.elapsed_secs, self.mp3.mp3_length)
   
-  def UpdateVolume(self) -> None:
-    self.window["mp3volume"].update(f"Volume: {self.scapper.mp3_player.volume}")
+  def _UpdateVolume(self) -> None:
+    self.window['mp3volume'].update(f"Volume: {self.mp3.mp3_player.volume}")
 
 
 class Scrapper():
-  def __init__(self):
-    self.base_url = "https://www.rfi.fr/fr/journaux-monde/"
-    self.temp_filename = "rfitemp.mp3"
-    self.volume_step = 2
-    self.mp3_player = None
-  
-  def ExtractData(self) -> tuple:
-    with request.urlopen(self.base_url) as response:
+  def __init__(self, base_url: str):
+    with request.urlopen(base_url) as response: 
       html_data = bs4.BeautifulSoup(response.read(), "html.parser")
-      temp_data = html_data.find("section").find("div", class_="o-layout-list__item").find("script").contents[0]
-      temp_data = json.loads(temp_data)
-      self.mp3_url = temp_data['sources'][0]['url']
+    list = html_data.select("div.o-layout-list script")
+    self._entries = [json.loads(item.contents[0]) for item in list]
+    pass
+  
+  def ExtractDataByItem(self, item: dict) -> tuple[str, str]:
+    """Extract title and datetime from an <self.Entries> item.
 
-    extracted = str(self.mp3_url).split("/")[8].removesuffix(".mp3").replace("_", " ").split(" ")
-    title = dict()
-    title['name'] = f"{extracted[0]} {extracted[1]}".capitalize()
-    title['time'] = f"{int(extracted[2].split('h')[0]) + 2:02d}:{int(extracted[2].split('h')[1]):02d}"
-    title['date'] = re.findall("([0-9]{4})([0-9]{2})([0-9]{2})", extracted[6])
-    title['date'] = date(int(title["date"][0][0]), int(title["date"][0][1]), int(title["date"][0][2]))
+    Args:
+        item (dict): <self.Entries> item.
 
-    return f"{title['name']}", f"{title['date'].strftime('%d-%m-%Y')} {title['time']}"
+    Returns:
+        tuple[str, str]: Tuple including title, datetime.
+    """
+    groups = re.findall("([\s\S]+) ([0-9]{2}/[0-9]{2}/{0,1}[0-9]{0,}) ([\s\S]+)", item['diffusion']['title'])
+    title, date, time = groups[0]
+    return title, f"{date} {time}"
 
+  def ExtractDataByNumber(self, entry_number: int) -> tuple[str, str]:
+    """Extract title and datetime from an <self.Entries> index.
+
+    Args:
+        entry_number (int): <self.Entries> index.
+
+    Returns:
+        tuple[str, str]: Tuple including title, datetime.
+    """
+    groups = re.findall("([\s\S]+) ([0-9]{2}/[0-9]{2}/{0,1}[0-9]{0,}) ([\s\S]+)", self._entries[entry_number]['diffusion']['title'])
+    title, date, time = groups[0]
+    return title, f"{date} {time}"
+  
+  def EntryNumberByTitle(self, title: str) -> int:
+    """Searches for an entry number from a title.
+
+    Args:
+        title (str): EXACT title of the show.
+
+    Returns:
+        int: <self.Entries> index.
+    """
+    return [i for i in range(len(self._entries)) if self._entries[i]['diffusion']['title'] == title][0]
+  
+  def ExtractUrl(self, entry_number: int) -> str:
+    """Extract URL from an entry index.
+
+    Args:
+        entry_number (int): Entry index.
+
+    Returns:
+        str: the URL of the show.
+    """
+    entry = self._entries[entry_number] 
+    return entry['sources'][0]['url']
+  
+  @property
+  def Entries(self):
+    """
+    Full list of shows (JSON format).
+    """
+    return self._entries
+
+
+class MP3Handler():
+  def __init__(self, mp3_url=None, mp3_filename="rfitemp.mp3") -> None:
+    self.mp3_url = mp3_url
+    self.mp3_filename = mp3_filename
+    self.volume_step = 2
+    self.mp3_player = None # Will be instanced after downloading
+  
   def DownloadMP3(self) -> None:
-    self.mp3_file = request.urlretrieve(url=self.mp3_url, filename=self.temp_filename)[0]
+    self.mp3_file = request.urlretrieve(url=self.mp3_url, filename=self.mp3_filename)[0]
     self.mp3_length = MP3(self.mp3_file).info.length
   
   def LoadMP3(self) -> None:
@@ -161,8 +250,8 @@ class Scrapper():
   
   def Detroy(self) -> None:
     if self.mp3_player: self.mp3_player.close()
-    if os.path.exists(self.temp_filename): os.remove(self.temp_filename)
-  
+    if os.path.exists(self.mp3_filename): os.remove(self.mp3_filename)
+
 
 class Images():
   base64_app = b"iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAMAAABg3Am1AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAACl1BMVEXhIBngIBviIBnbHx/gIBnhIBzhIB/hISThISXhIB7hISngICLfHwDgIAHgIAfgIADgIALgIBfgIB/lQUzoYmvqcHjqbnbkOUXkKDjkLz3kLTvkKjjhIBvhISHgIAPhIADuk5n51tj98vP/+/z////ump7iIA/4zdH98fL76+z86+376+398PH51djjISngIBHgIA3jISL3y87+/v7+//7unKHiIA364OP76OrjISzgIA/1v8P+/f3vm6H63N/75OfpbHT//P3+9/j0vcDsi5HrfYXlTVbgIB763d///f785efhISvzubz++frrf4b52dv+/Pz2xcjhLTThISbkMj/87e7tlpzmTFb+9vf//f3rd3/hIBH3zND97/H76ev76uz87vD509bhISLnV2H++vrpbHXjJDTkKjnjJjXhISjhIivnW2T++vvqb3fiJjDgIBbnWmPoWWPdHwDiIS3tj5XiISTiIADshYz2y83woabeHwDnX2jzsbftlJnump/vnKHnXWThIBfshIvum6Dtl5zumJzsiY7kN0T/9/n+7/HkLT3nW2b74eP0vsLnYWn//v7vnaP73+P85+rkNkP+9PX87u/iIBPnVl/+9vjxp6zoV2LkKDf+///53d/+9fXkIR/74+XlLUD++Pn++PjumJ3///7xo6nkIjDhJjDuh47lQ07nV2DnU13nVV/kMD7gIBP+8/X85+nsio/hJC/oZG3kPEj97/D52tzqbXXkO0bwoqbpa3TkOkbpaXLkOEX+8/TlQEzkNkTkKDn87e/jIjTgIAbaHx/eICHiISH87O7pa3PnXGbkMT/84+X629/jIjHgIAnnU1775+n87O386uzoY23kLDrkKznkLDvkLjvkLj3cICHfICH8N4UMAAAAAWJLR0QktAb5mQAAAAd0SU1FB+UIEg8KLfRRB4YAAAL2SURBVEjHvZXnX9NAGMdTuaRNfWgsDoZJi3AgIoqK4qoiOCrWjSiooFYUURQcOFDRKu4t4BYR996Ie+Hee/4xXi6h8IEWyAv9vbrL57733DPyPAyjRbpmPprONwAgpAVADMvpDQaeQDznFk++ewYQa2wORL4sQiahhSrBhLxYMHN+ILRs1bqNv4llAgKDVAW2FT1bQJLFGtwuJDQUh4ExvH1Eh0iqjlGdOkfzHgDEdenaDWMc0x33AGNsT+xWr959PABINEBfbLPJJ/oRC/2xLYbKhuM8AoweBsRjG04YOGjwEMEeOxTblPsT8TCPgOiA4eTMiJFymCTUOMDaraPwaDwGxhqTOBY1/iROGJdMLh0PDrLhUeNOSzAhBePUiWCQzaFJk9PSp1ClT51WP6yIEZ0wPQPj+BmgVz7MzAxQlTmrVuKQaMwSEWKzZifBnGwCzIV5RoeERGT3c8uO3AAScwDMjEEHYIVcGZi/QI4Sj3RQS0isBtjohcGL8vSweMnSZfnLCZC4YmVB2KrVAudas7ZwHVVhwXopR1QBDjZs3LQZtmzFeFv+9my8QwnLTnDE7qqJ0u6aKHFCUXHJnr37EvYfOCj7QIFDci2FH/aYBwKUlhwpiztKPFGAjPLyY/HHCUAyfYLKVjvTHBSllJ2MPAWnnQYapdQzZ8+dv3Dxks5LaXDgfzniylW4xjBOJazX80lUTBzyCtyowDetSSQzKlAJRsnJst6BW2n4Ni0fFbgDepKmBoC7IfgerYYagNaSV+D+g5SHpPybDjwqrnjsy2mwUFT6pOoprxXQbOHfP+nfAM80Aq7n2gDR/EIj4JL+k9Pkn35ZDeRm4JjQVyrgpbeSrlEeVWVRMv06kdxXSQGvvZUT3rx99/4DT3vrx0/Jn798Badiod7Iok8SEf/tO0saG1mapR8/g37lmUWlt9Ydiq7fSqtEFgtiEF2ayYj1zRHphqkzdpGaB7LgeQapS3mIi+qm7mCvBposneuPRkBxWgvg8xdv2kkNK0oYRwAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wOC0xOFQxNToxMDo0NCswMDowMNcL7PcAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDgtMThUMTU6MTA6NDQrMDA6MDCmVlRLAAAAAElFTkSuQmCC"
@@ -172,4 +261,6 @@ class Images():
   
 
 if __name__ == "__main__":
+  sg.theme("DarkGrey12")
+  sg.SetGlobalIcon(Images.base64_app)
   GUI()
