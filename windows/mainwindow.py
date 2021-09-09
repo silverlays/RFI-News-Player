@@ -35,40 +35,40 @@ def show():
     #print(event, values)
 
     if event == "__TIMEOUT__":
-      if mp3handler.position == mp3handler.length: window['stop'].click()
+      if mp3handler.Position == mp3handler.Length: window['stop'].click()
       else:
-        try: timer_str = f"{time.strftime('%M:%S', time.gmtime(mp3handler.position))} / {time.strftime('%M:%S', time.gmtime(mp3handler.length))}"
+        try: timer_str = f"{time.strftime('%M:%S', time.gmtime(mp3handler.Position))} / {time.strftime('%M:%S', time.gmtime(mp3handler.Length))}"
         except: timer_str = "00:00 / 00:00"
         _update_window(timer=True, progress_slider=True)
     if event == sg.WIN_CLOSED:
       del mp3handler
       break
     if event == "Left:37":
-      mp3handler.position -= 5
+      mp3handler.Position -= 5
     if event == "Right:39":
-      mp3handler.position += 5
+      mp3handler.Position += 5
     if event == "playpause":
-      if mp3handler.status == mp3handler.STATUS_PLAYING: mp3handler.Pause()
-      elif mp3handler.status == mp3handler.STATUS_PAUSED: mp3handler.Resume()
-      elif mp3handler.status == mp3handler.STATUS_STOPPED: mp3handler.Play()
+      if mp3handler.Status == mp3handler.STATUS_PLAYING: mp3handler.pause()
+      elif mp3handler.Status == mp3handler.STATUS_PAUSED: mp3handler.resume()
+      elif mp3handler.Status == mp3handler.STATUS_STOPPED: mp3handler.play()
       _update_window(playpause=True, statusbar=True)
     if event == "stop":
-      try: mp3handler.Stop()
+      try: mp3handler.stop()
       except: pass
       _update_window(timer=True, progress_slider=True, playpause=True, statusbar=True)
-    if event == "rewind" and mp3handler.status == mp3handler.STATUS_PLAYING:
-      mp3handler.position -= 30
-    if event == "forward" and mp3handler.status == mp3handler.STATUS_PLAYING:
-      mp3handler.position += 30
+    if event == "rewind" and mp3handler.Status == mp3handler.STATUS_PLAYING:
+      mp3handler.Position -= 30
+    if event == "forward" and mp3handler.Status == mp3handler.STATUS_PLAYING:
+      mp3handler.Position += 30
     if event == "progress_slider":
-      mp3handler.position = values['progress_slider']
+      mp3handler.Position = values['progress_slider']
     if event == "volumeslider":
-      mp3handler.volume = values['volumeslider']
+      mp3handler.Volume = values['volumeslider']
     if values['menubar']:
-      menubar_item = f"{str(values['menubar']).split('::')[0]}"
-      if str(values['menubar']).find("_NEWS_") != -1:
+      menubar_item = f"{values['menubar'].split('::')[0]}"
+      if values['menubar'].find("_NEWS_") != -1:
         _load_new_MP3(scrapper.entry_number_by_title(menubar_item))
-      if str(values['menubar']).find("_THEME_") != -1:
+      if values['menubar'].find("_THEME_") != -1:
         ThemePickerWindow(window)
         window.close()
         window = _create_window()
@@ -114,20 +114,20 @@ def _update_window(metadata=False, timer=False, progress_slider=False, volumesli
     window['datetime'].update(datetime_str)
   if timer: window['mp3time'].update(timer_str)
   if progress_slider:
-    if mp3handler.status == mp3handler.STATUS_PLAYING: window['progress_slider'].update(disabled=False)
-    if mp3handler.status == mp3handler.STATUS_PAUSED: window['progress_slider'].update(disabled=True)
-    if mp3handler.status == mp3handler.STATUS_STOPPED: window['progress_slider'].update(disabled=True)
-    try: window['progress_slider'].update(range=(0, mp3handler.length), value=mp3handler.position)
+    if mp3handler.Status == mp3handler.STATUS_PLAYING: window['progress_slider'].update(disabled=False)
+    if mp3handler.Status == mp3handler.STATUS_PAUSED: window['progress_slider'].update(disabled=True)
+    if mp3handler.Status == mp3handler.STATUS_STOPPED: window['progress_slider'].update(disabled=True)
+    try: window['progress_slider'].update(range=(0, mp3handler.Length), value=mp3handler.Position)
     except: window['progress_slider'].update(range=(0, 0), value=0)
-  if volumeslider: window['volumeslider'].update(mp3handler.volume)
+  if volumeslider: window['volumeslider'].update(mp3handler.Volume)
   if playpause:
-    if mp3handler.status == mp3handler.STATUS_PLAYING:
+    if mp3handler.Status == mp3handler.STATUS_PLAYING:
       playpause = images.base64_pause
       statusbar_str = "Playing..."
-    if mp3handler.status == mp3handler.STATUS_PAUSED:
+    if mp3handler.Status == mp3handler.STATUS_PAUSED:
       playpause = images.base64_play
       statusbar_str = "Paused..."
-    if mp3handler.status == mp3handler.STATUS_STOPPED:
+    if mp3handler.Status == mp3handler.STATUS_STOPPED:
       playpause = images.base64_play
       statusbar_str = "Stopped..."
     window['playpause'].update(image_data=playpause)
@@ -152,11 +152,11 @@ def _load_new_MP3(entry_number=0):
 
   statusbar_str = "Downloading..."
   mp3handler = MP3Handler(scrapper.extract_url(entry_number))
-  mp3handler.DownloadMP3()
+  mp3handler.download_MP3()
   _update_window(statusbar=True, timer=True)
 
   statusbar_str = "Loading..."
-  mp3handler.LoadMP3()
+  mp3handler.load_MP3()
   _update_window(statusbar=True)
   
   playpause_button: sg.Button = window['playpause']
