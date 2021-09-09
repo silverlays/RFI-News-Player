@@ -65,10 +65,10 @@ def show():
     if event == "volumeslider":
       mp3handler.Volume = values['volumeslider']
     if values['menubar']:
-      menubar_item = f"{values['menubar'].split('::')[0]}"
-      if values['menubar'].find("_NEWS_") != -1:
+      menubar_item = f"{str(values['menubar']).split('::')[0]}"
+      if str(values['menubar']).find("_NEWS_") != -1:
         _load_new_MP3(scrapper.entry_number_by_title(menubar_item))
-      if values['menubar'].find("_THEME_") != -1:
+      if str(values['menubar']).find("_THEME_") != -1:
         ThemePickerWindow(window)
         window.close()
         window = _create_window()
